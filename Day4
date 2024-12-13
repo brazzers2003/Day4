@@ -1,0 +1,100 @@
+# application.properties  
+admin.username=admin  
+admin.password=password123
+
+package com.example.carserviceschedule.controller;  
+
+import org.springframework.beans.factory.annotation.Value;  
+import org.springframework.web.bind.annotation.*;  
+import org.springframework.http.ResponseEntity;  
+
+import java.util.Base64;  
+import java.util.Date;  
+
+@RestController  
+@RequestMapping("/api/auth")  
+public class AuthController {  
+
+    @Value("${admin.username}")  
+    private String adminUsername;  
+
+    @Value("${admin.password}")  
+    private String adminPassword;  
+
+    @PostMapping("/login")  
+    public ResponseEntity<String> login(@RequestParam String username, @RequestParam String password) {  
+        if (username.equals(adminUsername) && password.equals(adminPassword)) {  
+            long expiryTime = System.currentTimeMillis() + 300000; // 5 хвилин в мілісекундах  
+            String token = username + ":" + expiryTime; // логін та час закінчення  
+            // Кодування в Base64  
+            String base64Token = Base64.getEncoder().encodeToString(token.getBytes());  
+            return ResponseEntity.ok(base64Token); // Повертаємо токен клієнту  
+        } else {  
+            return ResponseEntity.status(401).body("Unauthorized");  
+        }  
+    }  
+}
+
+package com.example.carserviceschedule.security;  
+
+import org.springframework.stereotype.Component;  
+import javax.servlet.*;  
+import javax.servlet.http.HttpServletRequest;  
+import javax.servlet.http.HttpServletResponse;  
+import java.io.IOException;  
+import java.util.Base64;  
+
+@Component  
+public class AuthFilter implements Filter {  
+
+    @Override  
+    public void doFilter(ServletRequest request, ServletResponse response, FilterChain chain) throws IOException, ServletException {  
+        HttpServletRequest httpRequest = (HttpServletRequest) request;  
+        String authToken = httpRequest.getHeader("Authorization");  
+
+        if (authToken != null && authToken.startsWith("Basic ")) {  
+            String base64Credentials = authToken.substring("Basic ".length());  
+            String credentials = new String(Base64.getDecoder().decode(base64Credentials));  
+            // credentials має формат username:expiry  
+            String[] parts = credentials.split(":");  
+
+            if (parts.length != 2) {  
+                ((HttpServletResponse) response).sendError(HttpServletResponse.SC_UNAUTHORIZED, "Unauthorized");  
+                return;  
+            }  
+
+            String username = parts[0];  
+            long expiryTime = Long.parseLong(parts[1]);  
+
+            // Перевірка токена  
+            if (username.equals("admin") && System.currentTimeMillis() < expiryTime) {  
+                chain.doFilter(request, response); // Доступ дозволено  
+            } else {  
+                ((HttpServletResponse) response).sendError(HttpServletResponse.SC_UNAUTHORIZED, "Unauthorized");  
+            }  
+        } else {  
+            ((HttpServletResponse) response).sendError(HttpServletResponse.SC_UNAUTHORIZED, "Unauthorized");  
+        }  
+    }  
+}
+
+import org.springframework.beans.factory.annotation.Autowired;  
+import org.springframework.context.annotation.Configuration;  
+import org.springframework.web.servlet.config.annotation.EnableWebMvc;  
+
+@EnableWebMvc  
+@Configuration  
+public class WebConfig implements WebMvcConfigurer {  
+
+    @Autowired  
+    private AuthFilter authFilter;  
+
+    @Override  
+    public void addInterceptors(InterceptorRegistry registry) {  
+        registry.addInterceptor(authFilter);  
+    }  
+}
+
+curl -X POST http://localhost:8080/api/auth/login -d "username=admin&password=wrongpassword"
+"YWRtaW46MTYzNDU5MTE4MjY="
+"Unauthorized"
